@@ -8,10 +8,14 @@
 
 #include <rex/ui/android_bridge.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <thread>
 
+#include <android/log.h>
 #include <jni.h>
+#include <unistd.h>
 
 #include <SDL3/SDL_system.h>
 
@@ -89,6 +93,41 @@ int OpenContentUri(std::string_view uri, const char* mode) {
   return fd;
 }
 
+// An app process has stderr pointed at /dev/null, so whatever libraries
+// report there (plume prints every failed Vulkan call that way) would be lost.
+// Route it into logcat and the log file instead, one line at a time.
+void CaptureStderr() {
+  int fds[2];
+  if (pipe(fds) != 0) {
+    return;
+  }
+  setvbuf(stderr, nullptr, _IOLBF, 0);
+  if (dup2(fds[1], STDERR_FILENO) < 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return;
+  }
+  close(fds[1]);
+  std::thread([read_fd = fds[0]] {
+    FILE* in = fdopen(read_fd, "r");
+    if (!in) {
+      return;
+    }
+    char* line = nullptr;
+    size_t capacity = 0;
+    ssize_t length;
+    while ((length = getline(&line, &capacity, in)) > 0) {
+      if (line[length - 1] == '\n') {
+        line[length - 1] = '\0';
+      }
+      __android_log_write(ANDROID_LOG_WARN, "stderr", line);
+      REXLOG_WARN("[stderr] {}", line);
+    }
+    free(line);
+    fclose(in);
+  }).detach();
+}
+
 }  // namespace
 
 std::filesystem::path GetAppStoragePath() {
@@ -104,6 +143,7 @@ std::filesystem::path GetAppStoragePath() {
 }
 
 void InitializeBridge() {
+  CaptureStderr();
   rex::filesystem::SetAndroidContentOpener(&OpenContentUri);
 
   // Nothing sets HOME for an app process, and GetUserFolder() falls back to the
