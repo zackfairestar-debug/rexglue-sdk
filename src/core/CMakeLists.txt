@@ -100,6 +100,9 @@ target_include_directories(rexcore PRIVATE
 
 if(APPLE)
     target_link_libraries(rexcore PRIVATE pthread)
+elseif(ANDROID)
+    # Bionic folds pthread and rt into libc.
+    target_link_libraries(rexcore PRIVATE dl log)
 elseif(UNIX)
     target_link_libraries(rexcore PRIVATE pthread rt dl)
 endif()

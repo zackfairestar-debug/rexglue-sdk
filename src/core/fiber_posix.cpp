@@ -17,7 +17,123 @@
 #endif
 
 #include <rex/platform.h>
-#if REX_PLATFORM_LINUX || REX_PLATFORM_MAC
+#if REX_PLATFORM_ANDROID
+
+#include <rex/thread/fiber.h>
+
+#include <cassert>
+#include <cstring>
+
+// Saves the AAPCS64 callee-saved state (x19-x30, d8-d15) on the current stack,
+// stores sp in *from_sp, then loads to_sp and restores the same frame from it.
+// A new fiber's stack is seeded with that frame so the restore "returns" into
+// rex_fiber_start with x19 = entry and x20 = arg.
+extern "C" void rex_fiber_switch(void** from_sp, void* to_sp);
+extern "C" void rex_fiber_start();
+
+asm(R"(
+  .text
+  .p2align 4
+  .globl rex_fiber_switch
+  .hidden rex_fiber_switch
+  .type rex_fiber_switch, %function
+rex_fiber_switch:
+  sub sp, sp, #160
+  stp x19, x20, [sp, #0]
+  stp x21, x22, [sp, #16]
+  stp x23, x24, [sp, #32]
+  stp x25, x26, [sp, #48]
+  stp x27, x28, [sp, #64]
+  stp x29, x30, [sp, #80]
+  stp d8, d9, [sp, #96]
+  stp d10, d11, [sp, #112]
+  stp d12, d13, [sp, #128]
+  stp d14, d15, [sp, #144]
+  mov x2, sp
+  str x2, [x0]
+  mov sp, x1
+  ldp x19, x20, [sp, #0]
+  ldp x21, x22, [sp, #16]
+  ldp x23, x24, [sp, #32]
+  ldp x25, x26, [sp, #48]
+  ldp x27, x28, [sp, #64]
+  ldp x29, x30, [sp, #80]
+  ldp d8, d9, [sp, #96]
+  ldp d10, d11, [sp, #112]
+  ldp d12, d13, [sp, #128]
+  ldp d14, d15, [sp, #144]
+  add sp, sp, #160
+  ret
+  .size rex_fiber_switch, .-rex_fiber_switch
+
+  .p2align 4
+  .globl rex_fiber_start
+  .hidden rex_fiber_start
+  .type rex_fiber_start, %function
+rex_fiber_start:
+  mov x0, x20
+  blr x19
+  // A fiber entry must switch away instead of returning.
+  brk #0x1
+  .size rex_fiber_start, .-rex_fiber_start
+)");
+
+namespace rex::thread {
+
+thread_local Fiber* Fiber::tls_current_ = nullptr;
+
+namespace {
+constexpr size_t kSwitchFrameSize = 160;
+constexpr size_t kSlotX19 = 0;
+constexpr size_t kSlotX20 = 1;
+constexpr size_t kSlotX29 = 10;
+constexpr size_t kSlotX30 = 11;
+}  // namespace
+
+Fiber* Fiber::ConvertCurrentThread() {
+  // sp_ is filled in by the first switch away from this thread.
+  auto* f = new Fiber();
+  f->is_thread_fiber_ = true;
+  tls_current_ = f;
+  return f;
+}
+
+Fiber* Fiber::Create(size_t stack_size, void (*entry)(void*), void* arg) {
+  auto* f = new Fiber();
+  f->entry_ = entry;
+  f->arg_ = arg;
+  f->stack_.resize(stack_size);
+
+  uintptr_t top = reinterpret_cast<uintptr_t>(f->stack_.data() + f->stack_.size());
+  top &= ~uintptr_t(15);
+  auto* frame = reinterpret_cast<uint64_t*>(top - kSwitchFrameSize);
+  std::memset(frame, 0, kSwitchFrameSize);
+  frame[kSlotX19] = reinterpret_cast<uint64_t>(entry);
+  frame[kSlotX20] = reinterpret_cast<uint64_t>(arg);
+  frame[kSlotX29] = 0;  // Terminates frame-pointer unwinding.
+  frame[kSlotX30] = reinterpret_cast<uint64_t>(&rex_fiber_start);
+  f->sp_ = frame;
+  return f;
+}
+
+void Fiber::SwitchTo(Fiber* target) {
+  Fiber* from = tls_current_;
+  tls_current_ = target;
+  rex_fiber_switch(&from->sp_, target->sp_);
+}
+
+void Fiber::Destroy() {
+  if (is_thread_fiber_) {
+    tls_current_ = nullptr;
+  } else {
+    assert(this != tls_current_ && "Destroy called on the currently running fiber");
+  }
+  delete this;
+}
+
+}  // namespace rex::thread
+
+#elif REX_PLATFORM_LINUX || REX_PLATFORM_MAC
 
 #include <rex/thread/fiber.h>
 

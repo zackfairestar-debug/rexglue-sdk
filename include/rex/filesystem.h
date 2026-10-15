@@ -131,6 +131,11 @@ void AndroidInitialize();
 void AndroidShutdown();
 bool IsAndroidContentUri(const std::string_view source);
 int OpenAndroidContentFileDescriptor(const std::string_view uri, const char* mode);
+// rexcore has no JNI access of its own; the UI layer, which owns the Java
+// side through SDL, installs the ContentResolver bridge at startup. Returns a
+// detached file descriptor, or -1.
+using AndroidContentOpener = int (*)(std::string_view uri, const char* mode);
+void SetAndroidContentOpener(AndroidContentOpener opener);
 #endif  // REX_PLATFORM_ANDROID
 
 }  // namespace filesystem

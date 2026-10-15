@@ -127,6 +127,13 @@ target_compile_options(aes128 PRIVATE -w)
 # libmspack - LZX decompression (only lzxd.c needed for XEX decompression)
 # Uses cabextract version which has all needed headers in one place
 set(MSPACK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libmspack/cabextract/mspack")
+# cabextract/mspack holds symlinks into libmspack/mspack. A Windows checkout
+# without symlink support turns them into one-line text files, so fall back to
+# the real sources when that happened.
+file(SIZE "${MSPACK_DIR}/lzxd.c" _rex_lzxd_size)
+if(_rex_lzxd_size LESS 1024)
+    set(MSPACK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libmspack/libmspack/mspack")
+endif()
 add_library(mspack STATIC
     ${MSPACK_DIR}/lzxd.c
 )
@@ -290,7 +297,15 @@ set(SDL_DUMMYVIDEO OFF CACHE BOOL "" FORCE)
 
 # Linux video and audio backends. Both video drivers are always built so the
 # one in use stays a runtime choice.
-if(UNIX AND NOT APPLE)
+if(ANDROID)
+    # SDL's Android backend owns the window (ANativeWindow), audio (AAudio /
+    # OpenSL ES) and input. Sensors stay on for gyro-capable controllers, and
+    # haptics for rumble.
+    set(SDL_UNIX_CONSOLE_BUILD OFF CACHE BOOL "" FORCE)
+    set(SDL_HAPTIC ON CACHE BOOL "" FORCE)
+    set(SDL_SENSOR ON CACHE BOOL "" FORCE)
+    set(SDL_HIDAPI ON CACHE BOOL "" FORCE)
+elseif(UNIX AND NOT APPLE)
     set(SDL_X11               ON  CACHE BOOL "" FORCE)
     set(SDL_WAYLAND           ON  CACHE BOOL "" FORCE)
     set(SDL_ALSA              ON  CACHE BOOL "" FORCE)

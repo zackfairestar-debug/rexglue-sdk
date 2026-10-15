@@ -34,9 +34,20 @@
 #include <shellapi.h>
 #endif
 
+#if REX_PLATFORM_ANDROID
+// Renames main below to SDL_main, the symbol SDLActivity calls once it has
+// loaded the app's shared library.
+#include <SDL3/SDL_main.h>
+
+#include <rex/ui/android_bridge.h>
+#endif
+
 namespace {
 
 int RunWindowedApp(int argc, char** argv) {
+#if REX_PLATFORM_ANDROID
+  rex::ui::android::InitializeBridge();
+#endif
   auto remaining = rex::cvar::Init(argc, argv);
   rex::cvar::ApplyEnvironment();
   rex::InitLoggingEarly();

@@ -123,7 +123,47 @@ std::filesystem::path GetUserFolder() {
   return std::filesystem::path(pw->pw_dir) / ".local" / "share";
 }
 
+#if REX_PLATFORM_ANDROID
+namespace {
+AndroidContentOpener android_content_opener_ = nullptr;
+}  // namespace
+
+void AndroidInitialize() {}
+void AndroidShutdown() {}
+
+void SetAndroidContentOpener(AndroidContentOpener opener) {
+  android_content_opener_ = opener;
+}
+
+bool IsAndroidContentUri(const std::string_view source) {
+  return source.starts_with("content://");
+}
+
+int OpenAndroidContentFileDescriptor(const std::string_view uri, const char* mode) {
+  if (!android_content_opener_) {
+    REXLOG_ERROR("No Android content opener installed, cannot open {}", uri);
+    return -1;
+  }
+  return android_content_opener_(uri, mode);
+}
+#endif  // REX_PLATFORM_ANDROID
+
 FILE* OpenFile(const std::filesystem::path& path, const std::string_view mode) {
+#if REX_PLATFORM_ANDROID
+  // Paths handed out by the system file picker are content URIs, not files.
+  if (IsAndroidContentUri(path.native())) {
+    const bool write = mode.find_first_of("wa+") != std::string_view::npos;
+    int fd = OpenAndroidContentFileDescriptor(path.native(), write ? "rw" : "r");
+    if (fd < 0) {
+      return nullptr;
+    }
+    FILE* file = fdopen(fd, std::string(mode).c_str());
+    if (!file) {
+      close(fd);
+    }
+    return file;
+  }
+#endif
   return fopen(path.c_str(), std::string(mode).c_str());
 }
 
