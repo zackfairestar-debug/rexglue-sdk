@@ -113,6 +113,11 @@ void InitializeBridge() {
     setenv("HOME", storage.c_str(), 0);
     setenv("XDG_DATA_HOME", storage.c_str(), 0);
   }
+  // There is no /tmp on Android; lock files and temporaries go to the cache.
+  if (const char* cache = SDL_GetAndroidCachePath()) {
+    setenv("TMPDIR", cache, 0);
+    setenv("XDG_RUNTIME_DIR", cache, 0);
+  }
 }
 
 }  // namespace rex::ui::android
