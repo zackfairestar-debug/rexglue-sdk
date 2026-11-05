@@ -314,7 +314,9 @@ void WindowSDL::ApplyFullscreenModeNow() {
   if (!sdl_window_) {
     return;
   }
-  if (!REXCVAR_GET(fullscreen_exclusive)) {
+  // Android has one mode per display and the compositor scales the surface,
+  // so exclusive fullscreen is always borderless there.
+  if (!REXCVAR_GET(fullscreen_exclusive) || REX_PLATFORM_ANDROID) {
     SDL_SetWindowFullscreenMode(sdl_window_, nullptr);
     return;
   }
